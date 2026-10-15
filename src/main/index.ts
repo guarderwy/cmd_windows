@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, shell, Menu, clipboard } from 'electron'
 import { join } from 'node:path'
 import { execFile } from 'node:child_process'
 import { spawn, type IPty } from 'node-pty'
@@ -22,6 +22,21 @@ function createWindow() {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false
     }
+  })
+
+  // 终端右键菜单：有选区时复制，否则只提供粘贴
+  win.webContents.on('context-menu', (_e, params) => {
+    const menu = Menu.buildFromTemplate([
+      {
+        label: '复制',
+        enabled: params.selectionText.length > 0,
+        click: () => win?.webContents.copy()
+      },
+      { label: '粘贴', click: () => win?.webContents.paste() },
+      { type: 'separator' },
+      { label: '全选', click: () => win?.webContents.selectAll() }
+    ])
+    menu.popup()
   })
 
   if (process.env.ELECTRON_RENDERER_URL) {
@@ -113,5 +128,12 @@ ipcMain.handle('dialog:selectDir', async () => {
 ipcMain.handle('layout:load', () => loadLayout())
 
 ipcMain.handle('layout:save', (_e, layout: unknown) => saveLayout(layout))
+
+// 剪贴板：供渲染进程在终端里复制/粘贴使用
+ipcMain.handle('clipboard:writeText', (_e, text: string) => {
+  clipboard.writeText(text)
+  return { ok: true }
+})
+ipcMain.handle('clipboard:readText', () => clipboard.readText())
 
 // M3: 配置 IPC 就绪

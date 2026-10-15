@@ -15,6 +15,8 @@ const termEl = ref<HTMLElement>()
 let term: Terminal
 let fitAddon: FitAddon
 let resizeObserver: ResizeObserver
+// 记录终端最近一次收到数据的时刻，用于判断上一条命令是否已“跑完”（输出安静）
+let lastDataTime = Date.now()
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -66,7 +68,10 @@ onMounted(async () => {
 
   registerPtyHandlers(
     paneId,
-    (data) => term.write(data),
+    (data) => {
+      term.write(data)
+      lastDataTime = Date.now()
+    },
     (exitCode) => {
       const s = sessions.get(paneId)
       if (s) {
@@ -79,6 +84,41 @@ onMounted(async () => {
   term.onData((data) => window.api.writePty(paneId, data))
   term.onResize(({ cols, rows }) => window.api.resizePty(paneId, cols, rows))
 
+  // 复制/粘贴：有选区时 Ctrl+C 复制（否则放行给终端做中断），Ctrl+V / Shift+Insert 粘贴
+  const copySelection = () => {
+    const sel = term.getSelection()
+    if (sel) void window.api.clipboardWrite(sel)
+  }
+  const pasteText = () => {
+    void window.api.clipboardRead().then((text) => {
+      if (text) window.api.writePty(paneId, text)
+    })
+  }
+  term.attachCustomKeyEventHandler((e) => {
+    if (e.type !== 'keydown') return true
+    const k = e.key.toLowerCase()
+    if (e.ctrlKey && k === 'c') {
+      if (term.hasSelection()) {
+        copySelection()
+        return false
+      }
+      return true
+    }
+    if (e.ctrlKey && k === 'v') {
+      pasteText()
+      return false
+    }
+    if (e.ctrlKey && k === 'insert') {
+      copySelection()
+      return false
+    }
+    if (e.shiftKey && k === 'insert') {
+      pasteText()
+      return false
+    }
+    return true
+  })
+
   // 标签页切换 / 拖拽分屏后重新适配尺寸。
   // dockview 隐藏 group 只是把容器宽高设为 0（不卸载、不 display:none），终端 DOM 与进程全程保留。
   // 真正导致内容消失/错乱的是：隐藏瞬间容器为 0 尺寸时仍去 fit，把 xterm 缩到约 0 列而重排清空。
@@ -88,6 +128,7 @@ onMounted(async () => {
     // 显示事件先于 dockview 回填容器尺寸触发，延迟一帧等尺寸就位后再 fit（仅适配尺寸，不重绘内容）
     requestAnimationFrame(() => {
       safeFit()
+      
       term.focus()
     })
   })
@@ -100,9 +141,19 @@ onMounted(async () => {
   // 依次执行配置的启动命令；恢复布局时按设置决定是否自动执行
   const shouldRunSteps = isRestoring() ? config.settings.autoRunOnRestore : true
   if (shouldRunSteps) {
-    for (const step of steps ?? []) {
-      window.api.writePty(paneId, `${step}\r`)
-      await sleep(config.settings.stepDelayMs)
+    // 每条命令之间：先等上一个命令执行完（终端 300ms 没有新输出即视为命令结束），
+    // 再额外等待 300ms，确保命令的副作用生效后，才发送下一条命令。
+    const waitStepGap = async () => {
+      const start = Date.now()
+      while (Date.now() - lastDataTime < 300 && Date.now() - start < 30000) {
+        await sleep(50)
+      }
+      await sleep(300)
+    }
+    for (let i = 0; i < (steps?.length ?? 0); i++) {
+      window.api.writePty(paneId, `${steps![i]}\r`)
+      lastDataTime = Date.now()
+      if (i < steps!.length - 1) await waitStepGap()
     }
   } else if (steps?.length) {
     term.write(`\x1b[90m[布局已恢复，${steps.length} 条启动命令未自动执行]\x1b[0m\r\n`)
@@ -143,5 +194,13 @@ watch(
   width: 100%;
   height: 100%;
   padding: 2px 0 0 4px;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+
+.term :deep(.xterm) {
+  user-select: text;
+  -webkit-user-select: text;
 }
 </style>

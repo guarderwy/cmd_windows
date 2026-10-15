@@ -12,6 +12,8 @@ const api = {
   selectDirectory: () => ipcRenderer.invoke('dialog:selectDir') as Promise<string | null>,
   layoutLoad: () => ipcRenderer.invoke('layout:load') as Promise<unknown | null>,
   layoutSave: (layout: unknown) => ipcRenderer.invoke('layout:save', layout) as Promise<{ ok: boolean; error?: string }>,
+  clipboardWrite: (text: string) => ipcRenderer.invoke('clipboard:writeText', text),
+  clipboardRead: () => ipcRenderer.invoke('clipboard:readText') as Promise<string>,
   onPtyData: (cb: (payload: { id: string; data: string }) => void) => {
     const handler = (_e: Electron.IpcRendererEvent, payload: { id: string; data: string }) => cb(payload)
     ipcRenderer.on('pty:data', handler)
