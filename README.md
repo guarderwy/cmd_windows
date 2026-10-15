@@ -57,16 +57,3 @@ npm run package
 ## 技术栈
 
 Electron + electron-vite + Vue 3 + TypeScript；终端用 xterm.js，多面板布局用 dockview-vue，原生终端用 node-pty。
-
-## 提交到 GitHub
-
-远程仓库：`https://github.com/guarderwy/cmd_windows.git`
-
-```bash
-git remote add origin https://github.com/guarderwy/cmd_windows.git
-git add .
-git commit -m "init: CmdWindows 多终端管理工具"
-git push -u origin main
-```
-
-> 提交前记得忽略 `node_modules/`、`out/`、`release/`（建议加个 `.gitignore`，要的话我直接补上）。
